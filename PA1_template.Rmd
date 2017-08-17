@@ -1,0 +1,125 @@
+---
+title: "PA1_Template"
+output: html_document
+---
+This assignment required downloading, processing, and doing some preliminary exploration on a data set of steps taken by a single individual as measured by a personal monitoring device worn by a single individual for 61 days.  Data was collected every five minutes.
+
+(@) Code for reading in the dataset and/or processing the data
+
+This step required fairly little.  The only real modification was to properly cast the date column.  I then generated two grouped datasets using dplyr for later use.
+
+```{r}
+fileUrl<-"https://d396qusza40orc.cloudfront.net/repdata/data/activity.zip"
+download.file(fileUrl, "data/activity.zip", method="curl")
+unzip("data/activity.zip")
+activity<-read.csv("activity.csv", na.strings = "NA")
+activity$date<-as.Date(as.character(activity$date), "%Y-%m-%d")
+
+#grouped datasets used in multiple steps
+require(dplyr)
+totalst<-activity %>% select(steps, date)%>% group_by(date)%>%summarise_all(sum)
+avgst<-activity %>% select(steps, interval)%>% group_by(interval)%>%summarise_all(funs(mean(., na.rm=TRUE)))
+
+```
+
+(@) Histogram of the total number of steps taken each day
+
+I used base with some minor modifications.
+
+```{r}
+hist(totalst$steps, xlab="Steps", main="Distribution, Total steps by date")
+```
+
+(@) Mean and median number of steps taken each day
+
+```{r}
+meanst<-mean(totalst$steps, na.rm=TRUE)
+medianst<-median(totalst$steps, na.rm=TRUE)
+print(paste("Mean Steps: ", meanst))
+print(paste("Median Steps: ", medianst))
+```
+
+(@) Time series plot of the average number of steps taken
+
+This was another straightforward plot, using ggplot this time to mix things up.
+
+```{r}
+require(ggplot2)
+qplot(avgst$interval, avgst$steps, main="Average steps by interval", xlab="Interval", ylab="Average Steps", geom="line")
+```
+
+(@) The 5-minute interval that, on average, contains the maximum number of steps
+
+There was, strictly speaking, no reason to store this in its own variable, but I used the value later on for some random testing and cross validation, so it came in handy
+
+```{r}
+maxst<-avgst[which.max(avgst$steps),]
+print(paste("Interval with Maximum Steps: ", maxst$interval))
+```
+
+(@) Code to describe and show a strategy for imputing missing data
+
+This was the trickiest section.  Exploration of the data showed 13% of the values were missing, which is higher than would generally be considered replaceable.  Additionally, basic distributions of the existing data showed a strong right skewness, making normal distribution-based imputation unsuitable.  
+
+```{r}
+totalMissing<-nrow(subset(activity, is.na(activity$steps)))
+print(paste("Total missing values: ", totalMissing))
+perMissing<-totalMissing/nrow(activity)
+print(paste("Percent missing values: ", perMissing*100,"%"))
+hist(activity$steps, xlab="Steps", main="Distribution of individual step readings")
+```
+A cursory literature review found this journal article:
+
+von Hippel, Paul T. "Should	a	Normal	Imputation	Model	Be	Modified	to Impute	Skewed	Variables?"	**Sociological Methods and Research,** 2013, 42(1), 105-138
+
+which concludes that a linear regression model should be used with strongly skewed data.  While there are a number of libraries that can do linear regression imputation, I chose mice.
+
+```{r}
+#due to some technical requirements in mice, we have to work
+#with an interim dataset in which the date column is converted to numeric
+require(mice)
+interactivity<-activity
+interactivity$date<-as.numeric(interactivity$date)
+activityimputed<-mice(data=interactivity, m=10, meth="norm.predict")
+range(activityimputed$imp$steps)
+#NB: the range is here because my first attempt, using bootstrap,
+#generated negative numbers. That being said, I'm not happy with the results, 
+#which do not feel sufficiently right-skewed
+activitycompleted<-complete(activityimputed, 1)
+activitycompleted$date<-as.Date(activitycompleted$date, origin="1970-01-01")
+```
+
+(@) Histogram of the total number of steps taken each day after missing values are imputed
+
+Please note that the imputed data set shows a similar shape to the original data set.
+
+```{r}
+totalimputed<-activitycompleted %>% select(steps, date)%>% group_by(date)%>%summarise_all(sum)
+hist(totalimputed$steps, xlab="Steps", main="Distribution, Total imputed steps by date")
+```
+
+(@) Panel plot comparing the average number of steps taken per 5-minute interval across weekdays and weekends
+
+Plotting weekend versus weekday measurements shows an interesting variation, in that the weekday measurements show much larger variation in range.  Taking the log makes the variation more visually apparent, turning the weekend graph into an almost Gaussian curve.
+
+```{r}
+require(chron)
+require(lattice)
+activitycompleted$wkend<-0
+activitycompleted$wkend[is.weekend(activitycompleted$date)]<-1
+avgimputed<-activitycompleted %>% select(steps, interval, wkend)%>% group_by(interval, wkend)%>%summarise_all(mean)
+#panel plot using lattice
+xyplot(steps~interval|factor(wkend, levels=c(0,1), labels=c("weekday","weekend")),
+      data=avgimputed, type="l", main="Weekday vs. weekend steps by interval (average)", xlab="Interval", ylab="Steps")
+xyplot(log10(steps)~interval|factor(wkend, levels=c(0,1), labels=c("weekday","weekend")),
+      data=avgimputed, type="l", main="Weekday vs. weekend steps by interval (average, log scaled)", xlab="Interval", ylab="Steps")
+```
+Overlaying the two, which is more easily done in ggplot, shows the same thing.  Again, the data is show both unscaled and log10 scaled.
+
+```{r}
+#overlaid plot using ggplot
+plot<-qplot(interval, steps, data=avgimputed, color=factor(wkend, labels=c("weekday","weekend")))
+plot+geom_line()+labs(title = "Weekday vs. weekend steps by interval (average)", x = "interval", y = "steps", color = "Day\n") 
+plot<-qplot(interval, log10(steps), data=avgimputed, color=factor(wkend, labels=c("weekday","weekend")))
+plot+geom_line()+labs(title = "Weekday vs. weekend steps by interval (average, log scaled)", x = "interval", y = "steps", color = "Day\n") 
+```

@@ -10,8 +10,8 @@ require(dplyr)
 totalst<-activity %>% select(steps, date)%>% group_by(date)%>%summarise_all(sum)
 avgst<-activity %>% select(steps, interval)%>% group_by(interval)%>%summarise_all(funs(mean(., na.rm=TRUE)))
 
-#plot 1, histogram (but not really)
-barplot(totalst$steps, names.arg=totalst$date, ylab="Steps", xlab="Dates", main="Total Steps by date")
+#plot 1, histogram 
+hist(totalst$steps, xlab="Steps", main="Distribution, Total steps by date")
 
 #summary stats by day
 meanst<-mean(totalst$steps, na.rm=TRUE)
@@ -21,6 +21,7 @@ print(paste("Median Steps: ", medianst))
 
 #time series plot of the average number of steps taken
 #(not specified, over the course of a day)
+require(ggplot2)
 qplot(avgst$interval, avgst$steps, main="Average steps by interval", xlab="Interval", ylab="Average Steps", geom="line")
 
 #interval with maximum steps on average
@@ -31,10 +32,12 @@ print(paste("Interval with Maximum Steps: ", maxst$interval))
 #Should	a	Normal	Imputation	Model	Be	Modified	to	
 #Impute	Skewed	Variables?	
 #Paul T. von Hippel 
-
-perMiss<-nrow(subset(activity, is.na(activity$steps)))/nrow(activity)
+totalMissing<-nrow(subset(activity, is.na(activity$steps)))
+print(paste("Total missing values: ", totalMissing))
+perMissing<-totalMissing/nrow(activity)
 hist(activity$steps)
 hist(activity$steps[activity$interval==835])
+
 #due to some technical requirements in mice, we have to work
 #with an interim dataset in which the date column is converted to numeric
 interactivity<-activity
@@ -43,19 +46,18 @@ activityimputed<-mice(data=interactivity, m=10, meth="norm.predict")
 range(activityimputed$imp$steps)
 #NB: the range is here because my first attempt, using bootstrap,
 #generated negative numbers. that being said, I'm not happy with the results, 
-#which are still not appropriately right-skewed
+#which are not sufficiently right-skewed
 activitycompleted<-complete(activityimputed, 1)
 activitycompleted$date<-as.POSIXlt(activitycompleted$date)
 
 #histogram (but not really) of total steps with imputed date
 totalimputed<-activitycompleted %>% select(steps, date)%>% group_by(date)%>%summarise_all(sum)
-barplot(totalimputed$steps, names.arg=totalimputed$date, ylab="Steps", xlab="Dates", main="Total Steps by date, imputed missing data")
+hist(totalimputed$steps, xlab="Steps", main="Distribution, Total imputed steps by date")
 
 #panel plot of average steps, weekdays vs. weekends. Had to use chron since
 #lubridate:wday() threw up a crapton of problems
 require(chron)
 require(lattice)
-require(ggplot2)
 activitycompleted$wkend<-0
 activitycompleted$wkend[is.weekend(activitycompleted$date)]<-1
 avgimputed<-activitycompleted %>% select(steps, interval, wkend)%>% group_by(interval, wkend)%>%summarise_all(mean)
